@@ -11,10 +11,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Brankas">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3064/3064197.png">
+    
+    <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='120' fill='%230f172a'/%3E%3Ccircle cx='256' cy='256' r='180' fill='none' stroke='%2338bdf8' stroke-width='24'/%3E%3Crect x='196' y='196' width='120' height='120' rx='24' fill='%23fbbf24'/%3E%3Ccircle cx='256' cy='256' r='28' fill='%230f172a'/%3E%3Cpath d='M256 120 v36 M256 356 v36 M120 256 h36 M356 256 h36' stroke='%2338bdf8' stroke-width='24' stroke-linecap='round'/%3E%3C/svg%3E">
     
     <!-- Web App Manifest (Data URI) for PWA Installation -->
-    <link rel="manifest" href='data:application/manifest+json,{"name":"Brankas - Portal Link","short_name":"Brankas","start_url":".","display":"standalone","background_color":"#0f172a","theme_color":"#0f172a","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/3064/3064197.png","sizes":"192x192","type":"image/png"},{"src":"https://cdn-icons-png.flaticon.com/512/3064/3064197.png","sizes":"512x512","type":"image/png"}]}'>
+    <link rel="manifest" href='data:application/manifest+json,{"name":"Brankas - Portal Link","short_name":"Brankas","start_url":".","display":"standalone","background_color":"#0f172a","theme_color":"#0f172a","icons":[{"src":"data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 512 512%27%3E%3Crect width=%27512%27 height=%27512%27 rx=%27120%27 fill=%27%230f172a%27/%3E%3Ccircle cx=%27256%27 cy=%27256%27 r=%27180%27 fill=%27none%27 stroke=%27%2338bdf8%27 stroke-width=%2724%27/%3E%3Crect x=%27196%27 y=%27196%27 width=%27120%27 height=%27120%27 rx=%2724%27 fill=%27%23fbbf24%27/%3E%3Ccircle cx=%27256%27 cy=%27256%27 r=%2728%27 fill=%27%230f172a%27/%3E%3Cpath d=%27M256 120 v36 M256 356 v36 M120 256 h36 M356 256 h36%27 stroke=%27%2338bdf8%27 stroke-width=%2724%27 stroke-linecap=%27round%27/%3E%3C/svg%3E","sizes":"512x512","type":"image/svg+xml","purpose":"any maskable"}]}'>
 
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -123,6 +124,11 @@
             <div class="flex items-center gap-2">
                 <span id="liveTime" class="font-semibold tracking-wider">12:00</span>
                 <span class="opacity-60 hidden sm:inline" id="liveDate">Senin, 1 Jan</span>
+                <!-- Indikator Auto-Sync Otomatis -->
+                <span id="autoSyncBadge" class="hidden items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium border border-emerald-500/30" title="Data otomatis tersinkronisasi dengan Google Sheets">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>Tersinkron</span>
+                </span>
             </div>
             <div class="flex items-center gap-3">
                 <!-- PWA Install Button -->
@@ -703,6 +709,14 @@ function doPost(e) {
         let isAdminUnlocked = false;
         let pendingProtectedAction = null;
         let currentWallpaper = 'wp-mesh';
+
+        /* 
+           ========================================================================================
+           URL GOOGLE SHEETS APPS SCRIPT ANDA
+           ========================================================================================
+        */
+        const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwbXFJDxNi1yE9MbDmk_Enj4-PUppl8ffhcPnYN2HyXsmymJafqIOoe_QZw67aAqJNn/exec';
+
         let googleSheetUrl = '';
         let deferredPrompt = null;
 
@@ -778,11 +792,15 @@ function doPost(e) {
 
             adminPassword = localStorage.getItem('personal_links_admin_pass') || '';
             currentWallpaper = localStorage.getItem('personal_links_wp') || 'wp-mesh';
-            googleSheetUrl = localStorage.getItem('personal_links_sheet_url') || '';
+            
+            // Menggunakan URL bawaan jika siswa belum menyimpan URL secara manual di localStorage
+            googleSheetUrl = localStorage.getItem('personal_links_sheet_url') || DEFAULT_SHEETS_URL;
 
             if (googleSheetUrl) {
                 const sheetInput = document.getElementById('sheetUrlInput');
                 if (sheetInput) sheetInput.value = googleSheetUrl;
+                
+                // OTOMATIS SINKRONISASI SAAT PERTAMA KALI DIBUKA (Tanpa Perlu Klik Button)
                 syncFromGoogleSheets(true);
             }
 
@@ -940,6 +958,10 @@ function doPost(e) {
 
             updatePasswordUIState();
             showToast('Password Admin berhasil disimpan!');
+
+            if (googleSheetUrl) {
+                pushToGoogleSheets();
+            }
         }
 
         function removeAdminPassword() {
@@ -959,14 +981,7 @@ function doPost(e) {
 
             updatePasswordUIState();
             showToast('Password Admin berhasil dihapus.');
-        }
 
-        function saveState() {
-            localStorage.setItem('personal_links_data', JSON.stringify(links));
-            renderLinks();
-            renderCategoryFilters();
-
-            // Auto push to Google Sheets if configured
             if (googleSheetUrl) {
                 pushToGoogleSheets();
             }
@@ -996,14 +1011,41 @@ function doPost(e) {
                 if (!silent) showToast('Mengambil data dari Google Sheets...');
                 const res = await fetch(googleSheetUrl);
                 const data = await res.json();
+                
                 if (Array.isArray(data) && data.length > 0) {
-                    links = data.map(item => ({
+                    const configItem = data.find(item => item.id === '__APP_CONFIG__');
+                    if (configItem) {
+                        if (typeof configItem.adminPassword !== 'undefined') {
+                            adminPassword = configItem.adminPassword || '';
+                            if (adminPassword) {
+                                localStorage.setItem('personal_links_admin_pass', adminPassword);
+                            } else {
+                                localStorage.removeItem('personal_links_admin_pass');
+                            }
+                            updatePasswordUIState();
+                        }
+                        if (configItem.currentWallpaper) {
+                            setWallpaper(configItem.currentWallpaper, true);
+                        }
+                    }
+
+                    // Filter out config item to get pure links
+                    links = data.filter(item => item.id !== '__APP_CONFIG__').map(item => ({
                         ...item,
                         inDock: item.inDock === 'true' || item.inDock === true
                     }));
+
                     localStorage.setItem('personal_links_data', JSON.stringify(links));
                     renderLinks();
                     renderCategoryFilters();
+
+                    // Tampilkan badge status tersinkronisasi otomatis di bagian atas
+                    const badge = document.getElementById('autoSyncBadge');
+                    if (badge) {
+                        badge.classList.remove('hidden');
+                        badge.classList.add('flex');
+                    }
+
                     if (!silent) showToast('Berhasil sinkron dari Google Sheets!');
                 } else if (!silent) {
                     showToast('Data Google Sheets masih kosong, menyimpan data lokal...');
@@ -1017,11 +1059,22 @@ function doPost(e) {
         async function pushToGoogleSheets() {
             if (!googleSheetUrl) return;
             try {
+                const configItem = {
+                    id: '__APP_CONFIG__',
+                    title: 'System Config',
+                    url: '#',
+                    category: 'System',
+                    adminPassword: adminPassword || '',
+                    currentWallpaper: currentWallpaper || 'wp-mesh'
+                };
+
+                const payload = [...links, configItem];
+
                 await fetch(googleSheetUrl, {
                     method: 'POST',
                     mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(links)
+                    body: JSON.stringify(payload)
                 });
             } catch (e) {
                 console.error('Error syncing to Google Sheets', e);
