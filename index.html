@@ -807,6 +807,16 @@ function doPost(e) {
             setWallpaper(currentWallpaper, false);
         }
 
+        // Fungsi menyimpan status data ke LocalStorage & otomatis ke Google Sheets
+        function saveState() {
+            localStorage.setItem('personal_links_data', JSON.stringify(links));
+            renderLinks();
+            renderCategoryFilters();
+            if (googleSheetUrl) {
+                pushToGoogleSheets();
+            }
+        }
+
         function protectedAction(actionCallback) {
             if (!adminPassword || isAdminUnlocked) {
                 // Password not set OR already unlocked for this session
@@ -849,8 +859,8 @@ function doPost(e) {
 
         function verifyAdminPassword(e) {
             e.preventDefault();
-            const inputVal = (document.getElementById('adminAuthInput').value || '').trim();
-            const savedPass = (adminPassword || '').trim();
+            const inputVal = String(document.getElementById('adminAuthInput').value || '').trim();
+            const savedPass = String(adminPassword || '').trim();
 
             if (inputVal === savedPass) {
                 isAdminUnlocked = true;
@@ -929,11 +939,11 @@ function doPost(e) {
         }
 
         function saveAdminPassword() {
-            const oldPass = (document.getElementById('oldAdminPassInput').value || '').trim();
-            const newPass = (document.getElementById('newAdminPassInput').value || '').trim();
-            const confirmPass = (document.getElementById('confirmAdminPassInput').value || '').trim();
+            const oldPass = String(document.getElementById('oldAdminPassInput').value || '').trim();
+            const newPass = String(document.getElementById('newAdminPassInput').value || '').trim();
+            const confirmPass = String(document.getElementById('confirmAdminPassInput').value || '').trim();
 
-            if (adminPassword && oldPass !== adminPassword) {
+            if (adminPassword && oldPass !== String(adminPassword).trim()) {
                 showToast('Password lama Anda salah!', 'error');
                 return;
             }
@@ -965,8 +975,8 @@ function doPost(e) {
         }
 
         function removeAdminPassword() {
-            const oldPass = (document.getElementById('oldAdminPassInput').value || '').trim();
-            if (oldPass !== adminPassword) {
+            const oldPass = String(document.getElementById('oldAdminPassInput').value || '').trim();
+            if (oldPass !== String(adminPassword).trim()) {
                 showToast('Masukkan password lama yang benar untuk menghapus!', 'error');
                 return;
             }
@@ -1015,8 +1025,8 @@ function doPost(e) {
                 if (Array.isArray(data) && data.length > 0) {
                     const configItem = data.find(item => item.id === '__APP_CONFIG__');
                     if (configItem) {
-                        if (typeof configItem.adminPassword !== 'undefined') {
-                            adminPassword = configItem.adminPassword || '';
+                        if (typeof configItem.adminPassword !== 'undefined' && configItem.adminPassword !== null) {
+                            adminPassword = String(configItem.adminPassword).trim();
                             if (adminPassword) {
                                 localStorage.setItem('personal_links_admin_pass', adminPassword);
                             } else {
@@ -1198,10 +1208,10 @@ function doPost(e) {
                 <div class="flex flex-col items-center justify-center group relative ${wiggleClass}">
                     ${isEditMode ? `
                         <div class="absolute -top-1.5 -right-1.5 z-20 flex gap-1">
-                            <button onclick="event.stopPropagation(); editLink('${link.id}')" class="w-5 h-5 rounded-full bg-sky-500 text-white text-[10px] flex items-center justify-center shadow hover:bg-sky-600 transition">
+                            <button onclick="event.preventDefault(); event.stopPropagation(); editLink('${link.id}')" class="w-5 h-5 rounded-full bg-sky-500 text-white text-[10px] flex items-center justify-center shadow hover:bg-sky-600 transition">
                                 <i class="fa-solid fa-pen"></i>
                             </button>
-                            <button onclick="event.stopPropagation(); deleteLink('${link.id}')" class="w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center shadow hover:bg-rose-600 transition">
+                            <button onclick="event.preventDefault(); event.stopPropagation(); deleteLink('${link.id}')" class="w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] flex items-center justify-center shadow hover:bg-rose-600 transition">
                                 <i class="fa-solid fa-minus"></i>
                             </button>
                         </div>
