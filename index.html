@@ -615,6 +615,21 @@ function doPost(e) {
             'from-stone-600 to-neutral-800'
         ];
 
+        // Fungsi untuk menghilangkan data/ikon ganda berdasarkan ID dan Kombinasi Judul+URL
+        function dedupeLinks(arr) {
+            if (!Array.isArray(arr)) return [];
+            const seen = new Set();
+            return arr.filter(item => {
+                if (!item || !item.title) return false;
+                const key = item.id ? String(item.id) : (String(item.title).toLowerCase().trim() + '::' + String(item.url || '').toLowerCase().trim());
+                if (seen.has(key)) {
+                    return false;
+                }
+                seen.add(key);
+                return true;
+            });
+        }
+
         // Default Link Items
         const DEFAULT_LINKS = [
             {
@@ -710,62 +725,10 @@ function doPost(e) {
         let pendingProtectedAction = null;
         let currentWallpaper = 'wp-mesh';
 
-        /* 
-           ========================================================================================
-           URL GOOGLE SHEETS APPS SCRIPT ANDA
-           ========================================================================================
-        */
-        const DEFAULT_SHEETS_URL = 'https://script.google.com/macros/s/AKfycbwbXFJDxNi1yE9MbDmk_Enj4-PUppl8ffhcPnYN2HyXsmymJafqIOoe_QZw67aAqJNn/exec';
+        const DEFAULT_SHEETS_URL = '';
 
         let googleSheetUrl = '';
         let deferredPrompt = null;
-
-        // Listen for PWA install prompt
-        window.addEventListener('beforeinstallprompt', (e) => {
-            e.preventDefault();
-            deferredPrompt = e;
-            const installBtn = document.getElementById('installAppBtn');
-            if (installBtn) installBtn.classList.remove('hidden');
-        });
-
-        // Register dummy Service Worker for PWA compliance
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-                const swCode = `
-                    self.addEventListener('install', (e) => self.skipWaiting());
-                    self.addEventListener('activate', (e) => e.waitUntil(clients.claim()));
-                    self.addEventListener('fetch', (e) => e.respondWith(fetch(e.request).catch(() => caches.match(e.request))));
-                `;
-                const blob = new Blob([swCode], { type: 'application/javascript' });
-                const swUrl = URL.createObjectURL(blob);
-                navigator.serviceWorker.register(swUrl).catch(err => console.log('SW registration note:', err));
-            });
-        }
-
-        async function installPWA() {
-            if (deferredPrompt) {
-                deferredPrompt.prompt();
-                const { outcome } = await deferredPrompt.userChoice;
-                if (outcome === 'accepted') {
-                    showToast('Terima kasih! Brankas berhasil diinstal.');
-                }
-                deferredPrompt = null;
-                const installBtn = document.getElementById('installAppBtn');
-                if (installBtn) installBtn.classList.add('hidden');
-            } else {
-                openInstallGuideModal();
-            }
-        }
-
-        function openInstallGuideModal() {
-            const modal = document.getElementById('installGuideModal');
-            if (modal) modal.classList.remove('opacity-0', 'pointer-events-none');
-        }
-
-        function closeInstallGuideModal() {
-            const modal = document.getElementById('installGuideModal');
-            if (modal) modal.classList.add('opacity-0', 'pointer-events-none');
-        }
 
         document.addEventListener('DOMContentLoaded', () => {
             loadState();
@@ -776,31 +739,31 @@ function doPost(e) {
             updatePasswordUIState();
         });
 
-        // Load saved state from Local Storage
+        // Load saved state from Local Storage with deduplication
         function loadState() {
             const savedLinks = localStorage.getItem('personal_links_data');
             if (savedLinks) {
                 try {
-                    links = JSON.parse(savedLinks);
+                    links = dedupeLinks(JSON.parse(savedLinks));
                 } catch (e) {
-                    links = DEFAULT_LINKS;
+                    links = dedupeLinks(DEFAULT_LINKS);
                 }
             } else {
-                links = DEFAULT_LINKS;
+                links = dedupeLinks(DEFAULT_LINKS);
                 saveState();
             }
+
+            localStorage.setItem('personal_links_data', JSON.stringify(links));
 
             adminPassword = localStorage.getItem('personal_links_admin_pass') || '';
             currentWallpaper = localStorage.getItem('personal_links_wp') || 'wp-mesh';
             
-            // Menggunakan URL bawaan jika siswa belum menyimpan URL secara manual di localStorage
-            googleSheetUrl = localStorage.getItem('personal_links_sheet_url') || DEFAULT_SHEETS_URL;
+            googleSheetUrl = localStorage.getItem('personal_links_sheet_url') || '';
 
             if (googleSheetUrl) {
                 const sheetInput = document.getElementById('sheetUrlInput');
                 if (sheetInput) sheetInput.value = googleSheetUrl;
                 
-                // OTOMATIS SINKRONISASI SAAT PERTAMA KALI DIBUKA (Tanpa Perlu Klik Button)
                 syncFromGoogleSheets(true);
             }
 
@@ -809,206 +772,13 @@ function doPost(e) {
 
         // Fungsi menyimpan status data ke LocalStorage & otomatis ke Google Sheets
         function saveState() {
+            links = dedupeLinks(links);
             localStorage.setItem('personal_links_data', JSON.stringify(links));
             renderLinks();
             renderCategoryFilters();
             if (googleSheetUrl) {
                 pushToGoogleSheets();
             }
-        }
-
-        function protectedAction(actionCallback) {
-            if (!adminPassword || isAdminUnlocked) {
-                // Password not set OR already unlocked for this session
-                actionCallback();
-            } else {
-                // Require password verification
-                pendingProtectedAction = actionCallback;
-                openAdminAuthModal();
-            }
-        }
-
-        function openAdminAuthModal() {
-            const modal = document.getElementById('adminAuthModal');
-            document.getElementById('adminAuthInput').value = '';
-            document.getElementById('adminAuthInput').type = 'password';
-            const eye = document.getElementById('eyeAuthIcon');
-            if (eye) eye.className = 'fa-solid fa-eye';
-            document.getElementById('adminAuthError').classList.add('hidden');
-            modal.classList.remove('opacity-0', 'pointer-events-none');
-            setTimeout(() => document.getElementById('adminAuthInput').focus(), 100);
-        }
-
-        function closeAdminAuthModal() {
-            const modal = document.getElementById('adminAuthModal');
-            modal.classList.add('opacity-0', 'pointer-events-none');
-        }
-
-        function togglePasswordVisibility(inputId, iconId) {
-            const input = document.getElementById(inputId);
-            const icon = document.getElementById(iconId);
-            if (!input) return;
-            if (input.type === 'password') {
-                input.type = 'text';
-                if (icon) icon.className = 'fa-solid fa-eye-slash';
-            } else {
-                input.type = 'password';
-                if (icon) icon.className = 'fa-solid fa-eye';
-            }
-        }
-
-        function verifyAdminPassword(e) {
-            e.preventDefault();
-            const inputVal = String(document.getElementById('adminAuthInput').value || '').trim();
-            const savedPass = String(adminPassword || '').trim();
-
-            if (inputVal === savedPass) {
-                isAdminUnlocked = true;
-                const actionToRun = pendingProtectedAction;
-                pendingProtectedAction = null;
-                
-                closeAdminAuthModal();
-                updatePasswordUIState();
-                showToast('Akses Admin Terbuka!');
-
-                if (actionToRun) {
-                    actionToRun();
-                }
-            } else {
-                document.getElementById('adminAuthError').classList.remove('hidden');
-                document.getElementById('adminAuthInput').value = '';
-            }
-        }
-
-        function resetAdminPasswordEmergency() {
-            if (confirm('Apakah Anda yakin ingin mereset password Admin? Setelah di-reset, Anda dapat membuat password baru di menu Pengaturan.')) {
-                adminPassword = '';
-                isAdminUnlocked = true;
-                localStorage.removeItem('personal_links_admin_pass');
-                
-                const actionToRun = pendingProtectedAction;
-                pendingProtectedAction = null;
-
-                closeAdminAuthModal();
-                updatePasswordUIState();
-                showToast('Password Admin berhasil di-reset!');
-
-                if (actionToRun) {
-                    actionToRun();
-                }
-            }
-        }
-
-        function lockAdmin() {
-            isAdminUnlocked = false;
-            if (isEditMode) {
-                toggleEditMode();
-            }
-            updatePasswordUIState();
-            showToast('Akses Admin telah dikunci.');
-        }
-
-        function updatePasswordUIState() {
-            const badge = document.getElementById('passStatusBadge');
-            const currentPassRow = document.getElementById('currentPassRow');
-            const removeBtn = document.getElementById('removePassBtn');
-            const adminLockBtn = document.getElementById('adminLockBtn');
-
-            if (adminPassword) {
-                if (badge) {
-                    badge.textContent = 'Aktif (Terlindungi)';
-                    badge.className = 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-medium';
-                }
-                if (currentPassRow) currentPassRow.classList.remove('hidden');
-                if (removeBtn) removeBtn.classList.remove('hidden');
-
-                if (isAdminUnlocked) {
-                    if (adminLockBtn) adminLockBtn.classList.remove('hidden');
-                } else {
-                    if (adminLockBtn) adminLockBtn.classList.add('hidden');
-                }
-            } else {
-                if (badge) {
-                    badge.textContent = 'Belum Aktif';
-                    badge.className = 'text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-medium';
-                }
-                if (currentPassRow) currentPassRow.classList.add('hidden');
-                if (removeBtn) removeBtn.classList.add('hidden');
-                if (adminLockBtn) adminLockBtn.classList.add('hidden');
-            }
-        }
-
-        function saveAdminPassword() {
-            const oldPass = String(document.getElementById('oldAdminPassInput').value || '').trim();
-            const newPass = String(document.getElementById('newAdminPassInput').value || '').trim();
-            const confirmPass = String(document.getElementById('confirmAdminPassInput').value || '').trim();
-
-            if (adminPassword && oldPass !== String(adminPassword).trim()) {
-                showToast('Password lama Anda salah!', 'error');
-                return;
-            }
-
-            if (!newPass) {
-                showToast('Masukkan password baru!', 'error');
-                return;
-            }
-
-            if (newPass !== confirmPass) {
-                showToast('Konfirmasi password tidak cocok!', 'error');
-                return;
-            }
-
-            adminPassword = newPass;
-            localStorage.setItem('personal_links_admin_pass', newPass);
-            isAdminUnlocked = true;
-
-            document.getElementById('oldAdminPassInput').value = '';
-            document.getElementById('newAdminPassInput').value = '';
-            document.getElementById('confirmAdminPassInput').value = '';
-
-            updatePasswordUIState();
-            showToast('Password Admin berhasil disimpan!');
-
-            if (googleSheetUrl) {
-                pushToGoogleSheets();
-            }
-        }
-
-        function removeAdminPassword() {
-            const oldPass = String(document.getElementById('oldAdminPassInput').value || '').trim();
-            if (oldPass !== String(adminPassword).trim()) {
-                showToast('Masukkan password lama yang benar untuk menghapus!', 'error');
-                return;
-            }
-
-            adminPassword = '';
-            isAdminUnlocked = false;
-            localStorage.removeItem('personal_links_admin_pass');
-
-            document.getElementById('oldAdminPassInput').value = '';
-            document.getElementById('newAdminPassInput').value = '';
-            document.getElementById('confirmAdminPassInput').value = '';
-
-            updatePasswordUIState();
-            showToast('Password Admin berhasil dihapus.');
-
-            if (googleSheetUrl) {
-                pushToGoogleSheets();
-            }
-        }
-
-        function saveSheetUrl() {
-            const url = document.getElementById('sheetUrlInput').value.trim();
-            if (!url) {
-                googleSheetUrl = '';
-                localStorage.removeItem('personal_links_sheet_url');
-                showToast('URL Google Sheets telah dihapus.');
-                return;
-            }
-            googleSheetUrl = url;
-            localStorage.setItem('personal_links_sheet_url', url);
-            showToast('URL Google Sheets berhasil disimpan!');
-            syncFromGoogleSheets();
         }
 
         async function syncFromGoogleSheets(silent = false) {
@@ -1039,17 +809,18 @@ function doPost(e) {
                         }
                     }
 
-                    // Filter out config item to get pure links
-                    links = data.filter(item => item.id !== '__APP_CONFIG__').map(item => ({
+                    // Filter out config item to get pure links and strictly deduplicate
+                    const rawLinks = data.filter(item => item.id !== '__APP_CONFIG__').map(item => ({
                         ...item,
                         inDock: item.inDock === 'true' || item.inDock === true
                     }));
+
+                    links = dedupeLinks(rawLinks);
 
                     localStorage.setItem('personal_links_data', JSON.stringify(links));
                     renderLinks();
                     renderCategoryFilters();
 
-                    // Tampilkan badge status tersinkronisasi otomatis di bagian atas
                     const badge = document.getElementById('autoSyncBadge');
                     if (badge) {
                         badge.classList.remove('hidden');
